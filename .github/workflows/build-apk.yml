@@ -1,0 +1,57 @@
+name: APK derle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Proje klasörünü belirle
+        run: |
+          if [ -f ChessVision.zip ]; then
+            mkdir -p _proj
+            unzip -q -o ChessVision.zip -d _proj
+            echo "PROJ=$(dirname "$(find _proj -name settings.gradle.kts | head -1)")" >> "$GITHUB_ENV"
+          else
+            echo "PROJ=." >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Stockfish 19 (Android arm64) indir
+        working-directory: ${{ env.PROJ }}
+        run: |
+          set -e
+          mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/assets/licenses
+          curl -L --fail -o sf.tar.gz https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-android-arm64-universal.tar.gz
+          tar -xzf sf.tar.gz stockfish/stockfish-android-arm64-universal stockfish/Copying.txt
+          cp stockfish/stockfish-android-arm64-universal app/src/main/jniLibs/arm64-v8a/libstockfish.so
+          cp stockfish/Copying.txt app/src/main/assets/licenses/stockfish-COPYING.txt
+          rm -rf stockfish sf.tar.gz
+          ls -la app/src/main/jniLibs/arm64-v8a
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Debug APK derle
+        working-directory: ${{ env.PROJ }}
+        run: gradle assembleDebug --stacktrace
+
+      - name: APK dosyasını yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChessVision-debug-apk
+          path: ${{ env.PROJ }}/app/build/outputs/apk/debug/*.apk
+
+      - name: Birim testleri
+        working-directory: ${{ env.PROJ }}
+        run: gradle testDebugUnitTest --stacktrace
